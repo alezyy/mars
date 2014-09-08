@@ -1,0 +1,366 @@
+<?php
+/**
+ * @file
+ * Defines common affiliate functionality.
+ */
+
+/**
+ * The affiliate url used in the menu callback.
+ * Changing this requires a menu rebuild (by clearing the cache from the
+ * Performance page, for example)
+ */
+define('AFFILIATE_URL', 'ref/');
+
+/**
+ * Implements hook_entity_info().
+ */
+function affiliate_ng_entity_info() {
+  $return = array(
+    'affiliate_campaign' => array(
+      'label' => t('Affiliate campaign'),
+      'entity class' => 'AffiliateCampaign',
+      'controller class' => 'EntityAPIController',
+      'views controller class' => 'EntityDefaultViewsController',
+      'module' => 'affiliate_ng',
+      'base table' => 'affiliate_ng_campaign',
+      'fieldable' => TRUE,
+      'entity keys' => array(
+        'id' => 'campaign_id',
+        'label' => 'name',
+      ),
+    ),
+    'affiliate_click' => array(
+      'label' => t('Affiliate click'),
+      'entity class' => 'AffiliateClick',
+      'controller class' => 'EntityAPIController',
+      'views controller class' => 'EntityDefaultViewsController',
+      'module' => 'affiliate_ng',
+      'base table' => 'affiliate_ng_click',
+      'fieldable' => TRUE,
+      'entity keys' => array(
+        'id' => 'click_id',
+      ),
+    ),
+  );
+
+  return $return;
+}
+
+/**
+ * Implements hook_init().
+ *
+ * Used for:
+ * - Disabling caching for all affiliate urls.
+ * - Handling the ?a= urls.
+ */
+function affiliate_ng_init() {
+  _affiliate_ng_disable_caching();
+  _affiliate_ng_handle_request();
+}
+
+/**
+ * Implements hook_menu().
+ */
+function affiliate_ng_menu() {
+  $items = array();
+
+  $items[AFFILIATE_URL . '%user'] = array(
+    'page callback' => 'affiliate_ng_click_callback',
+    'page arguments' => array(1),
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK
+  );
+  $items[AFFILIATE_URL . '%user/%entity_object'] = array(
+    'load arguments' => array('affiliate_campaign'),
+    'page callback' => 'affiliate_ng_click_callback',
+    'page arguments' => array(1, 2),
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function affiliate_ng_permission() {
+  $permissions = array(
+    'create global campaigns' => array(
+      'title' => t('Create global campaigns'),
+    ),
+    'edit global campaigns' => array(
+      'title' => t('Edit global campaigns'),
+    ),
+    'view global campaigns' => array(
+      'title' => t('View global campaigns'),
+    ),
+    'act as an affiliate' => array(
+      'title' => t('Act as an affiliate'),
+    ),
+    'define own campaigns' => array(
+      'title' => t('Define own campaigns'),
+      'description' => t('Allows an affiliate to create and modify his own campaigns (in order to differentiate traffic sources).'),
+    ),
+  );
+
+  return $permissions;
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function affiliate_ng_views_api() {
+  return array(
+    'api' => 3,
+    'path' => drupal_get_path('module', 'affiliate_ng') . '/includes/views',
+  );
+}
+
+/**
+ * Callback for the affiliate url. ("ref/" by default).
+ * Tries to register the click (doesn't care if it succeeds or not),
+ * then redirects to the frontpage (or destination, if given in the query string)
+ *
+ * @param $affiliate The user object of the affiliate
+ * @param $campaign  Campaign entity, if a campaign has been provided.
+ */
+function affiliate_ng_click_callback($affiliate, $campaign = NULL) {
+  // No campaign provided, use the default one.
+  if (!isset($campaign)) {
+    $campaign = affiliate_ng_campaign_load_default();
+  }
+
+  $destination = isset($_GET['destination']) ? $_GET['destination'] : '';
+  $click = _affiliate_ng_register_click($affiliate, $campaign, $destination);
+/*
+  if ($click) {
+    rules_invoke_event('affiliate_ng_click', $click);
+  }
+*/
+  drupal_goto('<front>');
+}
+
+/**
+ * Disables the Drupal page cache for our affiliate urls (ref/%user/ and
+ * ref/%user/%affiliate_ng_campaign).
+ *
+ * Called from affiliate_ng_init().
+ */
+function _affiliate_ng_disable_caching() {
+  $paths =  AFFILIATE_URL . '*' . "\n";
+  $paths .= AFFILIATE_URL . '*/*';
+
+  // Disabling cache for the affiliate urls (for example: ref/1, ref/3, etc...)
+  if (drupal_match_path($_GET['q'], $paths)) {
+    $GLOBALS['conf']['cache'] = FALSE;
+  }
+}
+
+/**
+ * Handles the query-string-style urls (for example, node/20?a=190&c=22).
+ *
+ * Called from affiliate_ng_init().
+ */
+function _affiliate_ng_handle_request() {
+  if (!isset($_GET['a'])) {
+    return;
+  }
+
+  $affiliate = user_load($_GET['a']);
+  // No affiliate found, abort.
+  if (!$affiliate) {
+    return;
+  }
+
+  // Load the referenced campaign, or get the default one.
+  if (isset($_GET['c'])) {
+    $campaign = entity_load_single('affiliate_campaign', $_GET['c']);
+  }
+  else {
+    $campaign = affiliate_ng_campaign_load_default();
+  }
+
+  if ($campaign) {
+    _affiliate_ng_register_click($affiliate, $campaign, $_GET['q']);
+  }
+}
+
+/**
+ * Registers a click, inserts it into a database, and enters the relevant data
+ * (affiliate uid and campaign id) into the affiliate_ng cookie.
+ *
+ * @param $affiliate
+ *   The user object of the affiliate getting the click.
+ * @param $campaign
+ *   The campaign entity.
+ * @param $destination
+ *   The end destination (requested URL)
+ */
+function _affiliate_ng_register_click($affiliate, $campaign, $destination) {
+  global $user;
+
+  // This account is no longer an affiliate, or the campaign is no longer active.
+  if (!user_access('act as an affiliate', $affiliate) || !$campaign->is_active) {
+    return;
+  }
+
+  // The affiliate is the same as the logged in user....
+  if ($affiliate->uid == $user->uid) {
+    return;
+  }
+
+  // Save the cookie
+  $cookie_lifetime = variable_get('affiliate_ng_cookie_lifetime', '1 month');
+  $cookie_lifetime = strtotime('+' . $cookie_lifetime);
+  setcookie('affiliate_ng[affiliate_uid]', $affiliate->uid, $cookie_lifetime, '/');
+  setcookie('affiliate_ng[campaign_id]', $campaign->campaign_id, $cookie_lifetime, '/');
+
+  // Register the click.
+  $values = array(
+    'campaign_id' => $campaign->campaign_id,
+    'affiliate_uid' => $affiliate->uid,
+    'created' => REQUEST_TIME,
+    'hostname' => ip_address(),
+    'referrer' => $_SERVER['HTTP_REFERER'],
+    'destination' => $destination,
+  );
+  $click = entity_create('affiliate_click', $values);
+  $click->save();
+
+  return $click;
+}
+
+/**
+ * Access check for the Affiliate Center.
+ *
+ * @param $account
+ *   The account object of the affiliate.
+ *
+ * @return
+ *   TRUE on success, FALSE otherwise.
+ */
+function affiliate_ng_dashboard_access($account) {
+  global $user;
+
+  // If invoked from a Views access plugin, only the uid is passed.
+  if (is_numeric($account)) {
+    $account = user_load($account);
+  }
+
+  // The account viewed either belongs to an anonymous user, or isn't an affiliate.
+  if (!$account->uid || !user_access('act as an affiliate', $account)) {
+    return FALSE;
+  }
+  // The current user isn't viewing his own profile, and doesn't have admin privileges.
+  if (!user_access('administer users') && $account->uid != $user->uid) {
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
+/**
+ * Access check for campaign operations in the Affiliate Center.
+ *
+ * Checks dashboard access, and then checks if the affiliate
+ * has the right to create and modify own campaigns.
+ *
+ * @param $account
+ *   The account object of the affiliate.
+ *
+ * @return
+ *   TRUE on success, FALSE otherwise.
+ */
+function affiliate_ng_dashboard_campaign_access($account) {
+  return affiliate_ng_dashboard_access($account) && user_access('define own campaigns');
+}
+
+/**
+ * Returns the default campaign.
+ * The defult campaign is created during installation. All clicks with no
+ * campaign id specified (like ref/%user) are attributed to this campaign.
+ *
+ * @return
+ *   The campaign entity.
+ */
+function affiliate_ng_campaign_load_default() {
+  $campaign_id = db_query("SELECT campaign_id FROM {affiliate_ng_campaign} WHERE affiliate_uid = 0 AND is_default = 1")->fetchField();
+  return entity_load_single('affiliate_campaign', $campaign_id);
+}
+
+/**
+ * Returns an array of global campaigns.
+ */
+function affiliate_ng_load_global_campaigns() {
+  $query = new EntityFieldQuery;
+  $query->entityCondition('entity_type', 'affiliate_campaign')
+        ->propertyCondition('affiliate_uid', '0', '=');
+  $result = $query->execute();
+
+  $campaign_ids = array_keys($result['affiliate_campaign']);
+  return entity_load('affiliate_campaign', $campaign_ids);
+}
+
+/**
+ * Callback for getting campaign properties.
+ */
+function affiliate_ng_campaign_get_properties($campaign, array $options, $name) {
+  switch ($name) {
+    case 'affiliate':
+      return $campaign->affiliate_uid;
+  }
+}
+
+/**
+ * Callback for setting campaign properties.
+ */
+function affiliate_ng_campaign_set_properties($campaign, $name, $value) {
+  switch ($name) {
+    case 'affiliate':
+      $campaign->affiliate_uid = $value;
+      break;
+  }
+}
+
+/**
+ * Callback for getting click properties.
+ * @see affiliate_ng_entity_property_info()
+ */
+function affiliate_ng_click_get_properties($click, array $options, $name) {
+  switch ($name) {
+    case 'affiliate':
+      return $click->affiliate_uid;
+    case 'campaign':
+      return $click->campaign_id;
+  }
+}
+
+/**
+ * Callback for setting click properties.
+ */
+function affiliate_ng_click_set_properties($click, $name, $value) {
+  switch ($name) {
+    case 'affiliate':
+      $click->affiliate_uid = $value;
+      break;
+    case 'campaign':
+      $click->campaign_id = $value;
+      break;
+  }
+}
+/**
+ * Set cookie
+ */
+/*
+function affiliate_ng_set_cookie($key, $value) {
+  $cookie_lifetime = variable_get('affiliate_ng_cookie_lifetime', '1 month');
+  $cookie_lifetime = strtotime('+' . $cookie_lifetime);
+  setcookie('affiliate_ng[' . $key . ']', $value, $cookie_lifetime, '/');
+}*/
+/*
+function affiliate_ng_delete_cookie() {
+  setcookie('affiliate_ng[affiliate_uid]', '', time() - 3600, '/');
+  setcookie('affiliate_ng[campaign_id]', '', time() - 3600, '/');
+}
+ */

@@ -1,0 +1,17 @@
+name = Commerce Affiliate
+description = Provides affiliate commissioning functionality.
+package = Affiliate-NG
+dependencies[] = commerce
+dependencies[] = commerce_price
+dependencies[] = affiliate_ng
+core = 7.x
+
+files[] = includes/commerce_affiliate_commission.class.inc
+files[] = includes/views/handlers/commerce_affiliate_handler_area_commission_form.inc
+files[] = includes/views/handlers/commerce_affiliate_handler_commission_operations.inc
+; Information added by drupal.org packaging script on 2013-09-30
+version = "7.x-1.x-dev"
+core = "7.x"
+project = "commerce_affiliate"
+datestamp = "1380559913"
+

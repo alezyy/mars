@@ -1,0 +1,71 @@
+<?php
+
+/**
+ * @file
+ * Provides commission types and related functionality for Commerce Order.
+ */
+
+/**
+ * Implements hook_commerce_affiliate_commission_type_info().
+ */
+function commerce_affiliate_order_commerce_affiliate_commission_type_info() {
+  $commission_types = array();
+
+  $commission_types['commerce_order'] = array(
+    'type' => 'commerce_order',
+    'entity_type' => 'commerce_order',
+    'name' => t('Order commission'),
+    'description' => t('Awarded to an affiliate after the referred user has completed an order. <br /> Usually calculated based on the order total.'),
+    // The Admin UI is the same for both commission types, since both
+    // are handled by the same view & form. Defined in both
+    // so that if one gets disabled, the other still works.
+    'admin_ui' => array(
+      'path' => 'admin/commerce/orders/%commerce_order/commissions',
+      'view_name' => 'commerce_affiliate_order_commissions',
+    ),
+  );
+  $commission_types['commerce_order_product'] = array(
+    'type' => 'commerce_order_product',
+    'entity_type' => 'commerce_order',
+    'name' => t('Order product commission'),
+    'description' => t('Awarded to an affiliate after the referred user has bought a particular product as a part of the completed order. <br /> Usually calculated based on the product total.'),
+    'admin_ui' => array(
+      'path' => 'admin/commerce/orders/%commerce_order/commissions',
+      'view_name' => 'commerce_affiliate_order_commissions',
+    ),
+  );
+
+  return $commission_types;
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function commerce_affiliate_order_views_api() {
+  return array(
+    'api' => 3,
+  );
+}
+
+/**
+ * Implements hook_field_access().
+ *
+ * Hides the product reference field from any Views that have it if the
+ * commerce_order_product commission type is disabled or unaccessible to
+ * the user because of permissions.
+ */
+function commerce_affiliate_order_field_access($op, $field, $entity_type, $entity, $account) {
+  if ($field['field_name'] == 'commerce_affiliate_product' && $op == 'view') {
+    $commission_type = commerce_affiliate_commission_type_load('commerce_order_product');
+    if (!$commission_type['enabled']) {
+      return FALSE;
+    }
+
+    if (!user_access('administer commerce_affiliate_commission entities', $account)
+      && !user_access('view any commerce_affiliate_commission entity', $account)
+      && !user_access('view any commerce_affiliate_commission entity of bundle commerce_order_product', $account)) {
+      return FALSE;
+    }
+  }
+  return TRUE;
+}

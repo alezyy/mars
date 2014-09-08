@@ -1,0 +1,23 @@
+name = Affiliate
+description = Provides common Affiliate functionality.
+package = Affiliate-NG
+core = 7.x
+dependencies[] = entity
+
+; Entity classes
+files[] = includes/affiliate_campaign.class.inc
+files[] = includes/affiliate_click.class.inc
+
+; Views handlers
+files[] = includes/views/handlers/affiliate_ng_handler_argument_campaign.inc
+files[] = includes/views/handlers/affiliate_ng_handler_field_campaign_operations.inc
+files[] = includes/views/handlers/affiliate_ng_handler_field_campaign_name.inc
+files[] = includes/views/handlers/affiliate_ng_handler_filter_date.inc
+files[] = includes/views/plugins/affiliate_ng_plugin_dashboard_access.inc
+
+; Information added by drupal.org packaging script on 2013-09-30
+version = "7.x-1.x-dev"
+core = "7.x"
+project = "affiliate_ng"
+datestamp = "1380553279"
+

@@ -1,0 +1,34 @@
+<?php
+
+/**
+ * @file
+ * Commerce coffee
+ * Hooks into Coffee module to provide commerce commands
+ */
+
+/**
+ * Implements hook_permission().
+ */
+function commerce_coffee_permission() {
+  $permissions = array(
+    'use commerce coffee' => array(
+      'title' => t('Use commerce coffee commands'),
+      'description' => t('Allow users to use commerce commands under Alt-d.'),
+    ),
+  );
+
+  return $permissions;
+}
+
+/**
+ * Implements hook_coffee_command().
+ *
+ * Allows hooking into coffee and feed it with cool commands.
+ * Jumps into an include file if proper perms are set, since its admin only.
+ */
+function commerce_coffee_coffee_command($op) {
+  if (user_access('use commerce coffee')) {
+    module_load_include('inc', 'commerce_coffee', 'commerce_coffee.includes');
+    return commerce_coffee_get_commands(check_plain($op));
+  }
+}

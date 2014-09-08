@@ -1,0 +1,16 @@
+core = 7.x
+name = Advanced Queues Test
+description = Simpletests for advancedqueue.
+package = Other
+
+dependencies[] = advancedqueue
+dependencies[] = simpletest
+
+files[] = advancedqueue.test
+
+; Information added by Drupal.org packaging script on 2014-06-25
+version = "7.x-1.0-beta2"
+core = "7.x"
+project = "advancedqueue"
+datestamp = "1403714628"
+

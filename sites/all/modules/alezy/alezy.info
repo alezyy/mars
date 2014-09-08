@@ -1,0 +1,7 @@
+name = Alezy
+description = Alezy module
+core = 7.x
+package = Alezy
+version = 7.x-1.0
+project = alezy
+features[features_api][] = api:2

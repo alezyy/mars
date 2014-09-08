@@ -1,0 +1,14 @@
+name = Commerce Affiliate UI
+description = Provides the basic interface to Commerce Affiliate.
+package = Affiliate-NG
+dependencies[] = affiliate_ng_ui
+dependencies[] = commerce_affiliate
+dependencies[] = entityreference
+core = 7.x
+
+; Information added by drupal.org packaging script on 2013-09-30
+version = "7.x-1.x-dev"
+core = "7.x"
+project = "commerce_affiliate"
+datestamp = "1380559913"
+

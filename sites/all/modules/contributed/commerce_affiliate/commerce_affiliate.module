@@ -1,0 +1,395 @@
+<?php
+
+/**
+ * @file
+ * Defines the core affiliate commission entity and surrounding API functions.
+ */
+
+/**
+ * Implements hook_entity_info().
+ */
+function commerce_affiliate_entity_info() {
+  $return = array(
+    'commerce_affiliate_commission' => array(
+      'label' => t('Affiliate Commission'),
+      'entity class' => 'CommerceAffiliateCommission',
+      'controller class' => 'EntityAPIController',
+      // 'module' is needed for automatic token generation
+      // by entity_tokens. Eventually we'll want to stop relying on it,
+      // provide our own like Commerce does.
+      'module' => 'commerce_affiliate',
+      'base table' => 'commerce_affiliate_commission',
+      'fieldable' => TRUE,
+      'entity keys' => array(
+        'id' => 'commission_id',
+        'bundle' => 'type',
+      ),
+      'bundles' => array(),
+      'bundle keys' => array(
+        'bundle' => 'type',
+      ),
+      'view modes' => array(
+        'display' => array(
+          'label' => t('Display'),
+          'custom settings' => FALSE,
+        ),
+      ),
+      'access callback' => 'commerce_affiliate_commission_access',
+      'access arguments' => array(
+        'access tag' => 'commerce_affiliate_commission_access',
+      ),
+      'permission labels' => array(
+        'singular' => t('commission'),
+        'plural' => t('commissions'),
+      ),
+      'token type' => 'commerce-affiliate-commission',
+    ),
+  );
+
+  foreach (commerce_affiliate_commission_types_get_names() as $type => $name) {
+    $return['commerce_affiliate_commission']['bundles'][$type] = array(
+      'label' => $name,
+    );
+  }
+
+  return $return;
+}
+
+
+/**
+ * Implements hook_hook_info().
+ */
+function commerce_affiliate_hook_info() {
+  $hooks = array(
+    'commerce_affiliate_commission_type_info' => array(
+      'group' => 'commerce',
+    ),
+    'commerce_affiliate_commission_type_info_alter' => array(
+      'group' => 'commerce',
+    ),
+  );
+
+  return $hooks;
+}
+
+/**
+ * Implements hook_field_extra_fields().
+ */
+function commerce_affiliate_field_extra_fields() {
+  $extra = array();
+
+  foreach (commerce_affiliate_commission_types() as $type => $product_type) {
+    $extra['commerce_affiliate_commission'][$type] = array(
+      'form' => array(
+        'affiliate_uid' => array(
+          'label' => t('Affiliate'),
+          'description' => t('Commission module affiliate form element'),
+          'weight' => -10,
+        ),
+        'campaign_id' => array(
+          'label' => t('Campaign'),
+          'description' => t('Commission module campaign form element'),
+          'weight' => -5,
+        ),
+      ),
+      'display' => array(
+        'affiliate_uid' => array(
+          'label' => t('Affiliate'),
+          'description' => t('The username of the affiliate who received the commission.'),
+          'weight' => -10,
+        ),
+        'campaign_id' => array(
+          'label' => t('Campaign'),
+          'description' => t('The name of the used campaign.'),
+          'weight' => -5,
+        ),
+      ),
+    );
+  }
+
+  return $extra;
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function commerce_affiliate_views_api() {
+  return array(
+    'api' => 3,
+    'path' => drupal_get_path('module', 'commerce_affiliate') . '/includes/views',
+  );
+}
+
+/**
+ * Implements hook_permission().
+ */
+function commerce_affiliate_permission() {
+  $permissions = array();
+  $permissions['administer commission types'] = array(
+    'title' => t('Administer commission types'),
+    'description' => t('Allows users to configure commission types and their fields.'),
+    'restrict access' => TRUE,
+  );
+
+  // The following code is based on commerce_entity_access_permissions().
+  // Not using the function itself because we need to customize the permission
+  // labels, to avoid strings like "Edit own Order commission commission".
+  $entity_info = entity_get_info('commerce_affiliate_commission');
+  $labels = $entity_info['permission labels'];
+
+  // General 'administer' permission.
+  $permissions['administer commerce_affiliate_commission entities'] = array(
+    'title' => t('Administer @entity_type', array('@entity_type' => $labels['plural'])),
+    'description' => t('Allows users to perform any action on @entity_type.', array('@entity_type' => $labels['plural'])),
+    'restrict access' => TRUE,
+  );
+  // Generic create and edit permissions.
+  $permissions['create commerce_affiliate_commission entities'] = array(
+    'title' => t('Create @entity_type of any type', array('@entity_type' => $labels['plural'])),
+  );
+  $permissions['edit any commerce_affiliate_commission entity'] = array(
+    'title' => t('Edit any @entity_type of any type', array('@entity_type' => $labels['singular'])),
+    'restrict access' => TRUE,
+  );
+  $permissions['view any commerce_affiliate_commission entity'] = array(
+    'title' => t('View any @entity_type of any type', array('@entity_type' => $labels['singular'])),
+    'restrict access' => TRUE,
+  );
+
+  // This is the customized part, each "title" is different.
+  foreach ($entity_info['bundles'] as $bundle_name => $bundle_info) {
+    $permissions['create commerce_affiliate_commission entities of bundle ' . $bundle_name] = array(
+      'title' => t('Create %commission_type', array('%commission_type' => $bundle_info['label'])),
+    );
+    $permissions['edit any commerce_affiliate_commission entity of bundle ' . $bundle_name] = array(
+      'title' => t('Edit any %commission_type', array('%commission_type' => $bundle_info['label'])),
+      'restrict access' => TRUE,
+    );
+    $permissions['view any commerce_affiliate_commission entity of bundle ' . $bundle_name] = array(
+      'title' => t('View any %commission_type', array('%commission_type' => $bundle_info['label'])),
+      'restrict access' => TRUE,
+    );
+  }
+
+  return $permissions;
+}
+
+/**
+ * Returns an array of commission type arrays keyed by type.
+ *
+ * @param $entity_type
+ *   The entity type to filter the types on.
+ * @param $exclude_disabled
+ *   Whether to exclude disabled commission types. All commission types
+ *   are enabled by default, but Commerce Affiliate UI allows them to be
+ *   disabled, which removes them from the UI while keeping the data intact.
+ *
+ * @return
+ *   An array of commission type arrays keyed by machine name.
+ */
+function commerce_affiliate_commission_types($entity_type = NULL, $exclude_disabled = FALSE) {
+  // First check the static cache for a commission types array.
+  $commission_types = &drupal_static(__FUNCTION__);
+
+  // If it did not exist, fetch the types now.
+  if (!isset($commission_types)) {
+    $commission_types = array();
+
+    // Find commission types defined by hook_commerce_affiliate_commission_type_info().
+    foreach (module_implements('commerce_affiliate_commission_type_info') as $module) {
+      foreach (module_invoke($module, 'commerce_affiliate_commission_type_info') as $type => $commission_type) {
+        // Provide defaults:
+        // - The module each commission type is defined by.
+        // - Whether the commission type is enabled.
+        $commission_type += array('module' => $module, 'enabled' => TRUE);
+        $commission_types[$type] = $commission_type;
+      }
+    }
+
+    // Allow the info to be altered by other modules.
+    drupal_alter('commerce_affiliate_commission_type_info', $commission_types);
+  }
+
+  // Filter by entity type, or enabled status.
+  $conditions = array();
+  if ($entity_type) {
+    $conditions['entity_type'] = $entity_type;
+  }
+  if ($exclude_disabled) {
+    $conditions['enabled'] = TRUE;
+  }
+
+  if ($conditions) {
+    $filtered_types = array();
+    foreach ($commission_types as $type => $commission_type) {
+      $match = TRUE;
+      foreach ($conditions as $key => $value) {
+        if ($commission_type[$key] != $value) {
+          $match = FALSE;
+        }
+      }
+
+      if ($match) {
+        $filtered_types[$type] = $commission_type;
+      }
+    }
+
+    return $filtered_types;
+  }
+
+  return $commission_types;
+}
+
+/**
+ * Loads a commission type.
+ *
+ * @param $type
+ *   The machine-readable name of the commission type; accepts normal machine names
+ *     and URL prepared machine names with underscores replaced by hyphens.
+ */
+function commerce_affiliate_commission_type_load($type) {
+  $type = strtr($type, array('-' => '_'));
+  $commission_types = commerce_affiliate_commission_types();
+  return !empty($commission_types[$type]) ? $commission_types[$type] : FALSE;
+}
+
+/**
+ * Returns an array of commission type names keyed by type.
+ *
+ * @param $entity_type
+ *   The entity type to filter the types on.
+ * @param $exclude_disabled
+ *   Whether to exclude disabled commission types. All commission types
+ *   are enabled by default, but Commerce Affiliate UI allows them to be
+ *   disabled, which removes them from the UI while keeping the data intact.
+ *
+ * @return
+ *   An array of commission type names keyed by the machine name.
+ */
+function commerce_affiliate_commission_types_get_names($entity_type = NULL, $exclude_disabled = FALSE) {
+  $commission_types = commerce_affiliate_commission_types($entity_type, $exclude_disabled);
+  foreach ($commission_types as $key => $value) {
+    $commission_types[$key] = $value['name'];
+  }
+
+  return $commission_types;
+}
+
+/**
+ * Wraps commerce_affiliate_commission_types_get_names() for the Entity module.
+ */
+function commerce_affiliate_commission_type_options_list() {
+  return commerce_affiliate_commission_types_get_names(NULL, TRUE);
+}
+
+/**
+ * Ensures that the amount field is present on a commission type bundle.
+ */
+function commerce_affiliate_configure_commission_type($commission_type) {
+  $entity_type = 'commerce_affiliate_commission';
+  $bundle = $commission_type['type'];
+
+  $instance = field_read_instance($entity_type, 'commerce_affiliate_amount', $bundle);
+  if (empty($instance)) {
+    commerce_price_create_instance('commerce_affiliate_amount', $entity_type, $bundle, t('Amount'));
+  }
+}
+
+/**
+ * Checks commission access for various operations.
+ *
+ * @param $op
+ *   The operation being performed. One of 'view', 'update', 'create' or
+ *   'delete'.
+ * @param $commission
+ *   Optionally a commission to check access for. If no commission is given, it
+ *   will be determined whether access is allowed for all commissions.
+ * @param $account
+ *   The user account whose access should be checked; defaults to the current
+ *   user if left NULL.
+ *
+ * @return
+ *   TRUE or FALSE indicating whether or not access should be granted.
+ */
+function commerce_affiliate_commission_access($op, $commission = NULL, $account = NULL) {
+  // Don't allow creating commissions belonging to disabled types.
+  if ($op == 'create' && isset($commission)) {
+    $commission_type = commerce_affiliate_commission_type_load($commission->type);
+    if (!$commission_type['enabled']) {
+      return FALSE;
+    }
+  }
+
+  return commerce_entity_access($op, $commission, $account, 'commerce_affiliate_commission');
+}
+
+/**
+ * Implementation of hook_query_commerce_affiliate_commission_access_alter().
+ */
+function commerce_affiliate_query_commerce_affiliate_commission_access_alter(QueryAlterableInterface $query) {
+  return commerce_entity_access_query_alter($query, 'commerce_affiliate_commission');
+}
+
+/**
+ * Callback for getting commission properties.
+ *
+ * @see commerce_affiliate_entity_property_info()
+ */
+function commerce_affiliate_get_properties($commission, array $options, $name) {
+  switch ($name) {
+    case 'affiliate':
+      return $commission->affiliate_uid;
+    case 'campaign':
+      return $commission->campaign_id;
+  }
+}
+
+/**
+ * Callback for setting commission properties.
+ *
+ * @see commerce_affiliate_entity_property_info()
+ */
+function commerce_affiliate_set_properties($commission, $name, $value) {
+  switch ($name) {
+    case 'affiliate':
+      $commission->affiliate_uid = $value;
+      break;
+    case 'campaign':
+      $commission->campaign_id = $value;
+      break;
+  }
+}
+
+/**
+ * Provides an array of entity types and their labels.
+ * Only the entity types suitable for receiving commissions
+ * are included in the array.
+ */
+function commerce_affiliate_entity_type_list() {
+  $info = entity_get_info();
+  $types = array();
+  foreach ($info as $type => $entity_info) {
+    if (empty($entity_info['configuration']) && !in_array($type, array('affiliate_campaign', 'commerce_affiliate_commission'))) {
+      $types[$type] = $entity_info['label'];
+    }
+  }
+  return $types;
+}
+/**
+ * Delete a commission.
+ *
+ * @param int $commission_id
+ *   Commission ID.
+ */
+function commerce_affiliate_delete($commission_id) {
+  commerce_affiliate_delete_multiple(array($commission_id));
+}
+/**
+ * Delete multiple commissions.
+ *
+ * @param array $commission_ids
+ *   An array of commission IDs.
+ */
+function commerce_affiliate_delete_multiple($commission_ids) {
+  entity_delete_multiple('commerce_affiliate_commission', $commission_ids);
+}

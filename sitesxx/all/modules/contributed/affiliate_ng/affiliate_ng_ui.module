@@ -1,0 +1,330 @@
+<?php
+/**
+ * @file
+ * Defines the UI.
+ */
+
+/**
+ * Implements hook_form_alter()
+ *
+ * Used to tweak the filter on the Clicks page.
+ */
+function affiliate_ng_ui_form_views_exposed_form_alter(&$form, $form_state, $form_id) {
+  if($form['#id'] == 'views-exposed-form-affiliate-clicks-page-1' || $form['#id'] == 'views-exposed-form-affiliate-report-page-1') {
+    $form['#attributes'] = array('class' => 'affiliate_ng_filter');
+    $form['#suffix'] = '<div class="clearfix"></div>';
+  }
+}
+
+/**
+ * Implements hook_init().
+ *
+ * Adds the module-specific css.
+ */
+function affiliate_ng_ui_init() {
+  global $base_url;
+
+  $path = drupal_get_path('module', 'affiliate_ng_ui') . '/theme/affiliate_ng_ui.css';
+  drupal_add_css($base_url . '/' . $path);
+}
+
+/**
+ * Implements hook_entity_info_alter().
+ */
+function affiliate_ng_ui_entity_info_alter(&$entity_info) {
+  // Expose the admin UI for fields attached to affiliate campaigns.
+  $entity_info['affiliate_campaign']['bundles']['affiliate_campaign']['admin'] = array(
+    'path' => 'admin/affiliates/campaigns',
+    'real path' => 'admin/affiliates/campaigns',
+    'access arguments' => array('edit global campaigns'),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function affiliate_ng_ui_menu() {
+  $items = array();
+
+  $items['admin/affiliates'] = array(
+    'title' => 'Affiliates',
+    'page callback' => 'affiliate_ng_ui_overview',
+    'page arguments' => array('admin'),
+    'access arguments' => array('access administration pages'),
+  );
+  $items['admin/affiliates/overview'] = array(
+    'title' => 'Overview',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => -10,
+  );
+  // Note: admin/affiliates/clicks will be created by Views.
+  $items['admin/affiliates/settings'] = array(
+    'title' => 'Affiliate Settings',
+    'type' => MENU_LOCAL_TASK,
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('affiliate_ng_ui_settings_form'),
+    'access arguments' => array('access administration pages'),
+  );
+  // Note: admin/affiliates/campaigns will be created by Views.
+  $items['admin/affiliates/campaigns/add'] = array(
+    'title' => 'Add a campaign',
+    'page callback' => 'affiliate_ng_campaign_form_wrapper',
+    'access arguments' => array('create global campaigns'),
+    'type' => MENU_LOCAL_ACTION | MENU_VISIBLE_IN_BREADCRUMB,
+    'file' => 'includes/affiliate_ng_ui.campaigns.inc',
+  );
+  $items['admin/affiliates/campaigns/%entity_object'] = array(
+    'load arguments' => array('affiliate_campaign'),
+    'title callback' => 'entity_label',
+    'title arguments' => array('affiliate_campaign', 3),
+    'page callback' => 'affiliate_ng_campaign_form_wrapper',
+    'page arguments' => array(3),
+    'access arguments' => array('edit global campaigns'),
+    'type' => MENU_CALLBACK | MENU_VISIBLE_IN_BREADCRUMB,
+    'file' => 'includes/affiliate_ng_ui.campaigns.inc',
+    'weight' => 0,
+  );
+  $items['admin/affiliates/campaigns/%entity_object/edit'] = array(
+    'load arguments' => array('affiliate_campaign'),
+    'title' => 'Edit',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+    'weight' => -10,
+  );
+  $items['admin/affiliates/campaigns/%entity_object/delete'] = array(
+    'load arguments' => array('affiliate_campaign'),
+    'title' => 'Delete',
+    'page callback' => 'affiliate_ng_campaign_delete_form_wrapper',
+    'page arguments' => array(3),
+    'access arguments' => array('edit global campaigns'),
+    'type' => MENU_LOCAL_TASK,
+    'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+    'weight' => 10,
+    'file' => 'includes/affiliate_ng_ui.campaigns.inc',
+  );
+
+  $items['user/%user/affiliate'] = array(
+    'title' => 'Affiliate Center',
+    'page callback' => 'affiliate_ng_ui_overview',
+    'page arguments' => array('user', 1),
+    'type' => MENU_LOCAL_TASK,
+    'access callback' => 'affiliate_ng_dashboard_access',
+    'access arguments' => array(1),
+  );
+  $items['user/%user/affiliate/overview'] = array(
+    'title' => 'Overview',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => -10,
+  );
+  // Note: user/%user/affiliate/campaigns will be created by Views.
+  $items['user/%user/affiliate/campaigns/add'] = array(
+    'title' => 'Add a campaign',
+    'page callback' => 'affiliate_ng_campaign_form_wrapper',
+    'page arguments' => array(NULL, 1),
+    'access callback' => 'affiliate_ng_dashboard_campaign_access',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_ACTION | MENU_VISIBLE_IN_BREADCRUMB,
+    'file' => 'includes/affiliate_ng_ui.campaigns.inc',
+  );
+  $items['user/%user/affiliate/campaigns/%entity_object'] = array(
+    'load arguments' => array('affiliate_campaign'),
+    'title callback' => 'entity_label',
+    'title arguments' => array('affiliate_campaign', 4),
+    'page callback' => 'affiliate_ng_ui_campaign_view',
+    'page arguments' => array(4, 1),
+    'access callback' => 'affiliate_ng_dashboard_access',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'includes/affiliate_ng_ui.campaigns.inc',
+  );
+  $items['user/%user/affiliate/campaigns/%entity_object/view'] = array(
+    'load arguments' => array('affiliate_campaign'),
+    'title' => 'View',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => -10,
+  );
+  $items['user/%user/affiliate/campaigns/%entity_object/edit'] = array(
+    'load arguments' => array('affiliate_campaign'),
+    'title' => 'Edit',
+    'page callback' => 'affiliate_ng_campaign_form_wrapper',
+    'page arguments' => array(4, 1),
+    'access callback' => 'affiliate_ng_dashboard_campaign_access',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_TASK,
+    'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+    'weight' => 10,
+    'file' => 'includes/affiliate_ng_ui.campaigns.inc',
+  );
+  $items['user/%user/affiliate/campaigns/%entity_object/delete'] = array(
+    'load arguments' => array('affiliate_campaign'),
+    'title' => 'Delete',
+    'page callback' => 'affiliate_ng_campaign_delete_form_wrapper',
+    'page arguments' => array(4, 1),
+    'access callback' => 'affiliate_ng_dashboard_campaign_access',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_TASK,
+    'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+    'weight' => 10,
+    'file' => 'includes/affiliate_ng_ui.campaigns.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function affiliate_ng_ui_theme() {
+  return array(
+    'affiliate_ng_url' => array(
+      'variables' => array('url' => '', 'default_code' => NULL),
+    ),
+  );
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function affiliate_ng_ui_views_api() {
+  return array(
+    'api' => 3,
+    'path' => drupal_get_path('module', 'affiliate_ng_ui') . '/includes/views',
+  );
+}
+
+/**
+ * Provides the module's settings form.
+ */
+function affiliate_ng_ui_settings_form($form, &$form_state) {
+  $form['affiliate_ng_cookie_lifetime'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Cookie Lifetime'),
+    '#description' => t('How long should the cookie be valid. <a href="http://php.net/strtotime">Strtotime</a> syntax. The value 0 means "until the browser is closed."'),
+    '#default_value' => variable_get('affiliate_ng_cookie_lifetime', '0'),
+  );
+  return system_settings_form($form);
+}
+
+/**
+ * Validates the submitted settings form.
+ */
+function affiliate_ng_ui_settings_form_validate($form, &$form_state) {
+  // The user entered a cookie lifetime, check that it's valid.
+  if ($form_state['values']['affiliate_ng_cookie_lifetime'] != '0') {
+    if (strtotime($form_state['values']['affiliate_ng_cookie_lifetime']) === FALSE) {
+      form_set_error('affiliate_ng_cookie_lifetime', t("You must enter a value in valid strtotime syntax."));
+    }
+  }
+}
+
+/**
+ * Show the overview page containing affiliate related 
+ * statistics fetched through hook_affiliate_statistics().
+ */
+function affiliate_ng_ui_overview($mode, $account = NULL) {
+  $statistics = module_invoke_all('affiliate_statistics', $mode, $account);
+  return drupal_render($statistics);
+}
+
+/** 
+ * Implements hook_affiliate_statistics().
+ *
+ * @todo This needs to be styled. Looks very ugly.
+ */
+function affiliate_ng_affiliate_statistics($mode, $account = NULL) {
+  if ($mode == 'user') {
+    $counts = _affiliate_ng_ui_get_click_counts($account->uid);
+  } 
+  else {
+    $counts = _affiliate_ng_ui_get_click_counts();
+  }
+  
+  $page = array();
+  $page['clicks'] = array(
+    '#type' => 'fieldset',
+    '#title' => 'Clicks',
+  );
+  $page['clicks']['today'] = array(
+    '#type' => 'item',
+    '#title' => t('Today'),
+    '#markup' => $counts['today'],
+  );
+  $page['clicks']['week'] = array(
+    '#type' => 'item',
+    '#title' => t('This Week'),
+    '#markup' => $counts['week'],
+  );
+  $page['clicks']['month'] = array(
+    '#type' => 'item',
+    '#title' => t('This Month'),
+    '#markup' => $counts['month'],
+  );
+  $page['clicks']['year'] = array(
+    '#type' => 'item',
+    '#title' => t('This Year'),
+    '#markup' => $counts['year'],
+  );
+  return $page;
+}
+
+/**
+ * Displays the passed affiliate url.
+ * Prepends the base url (node/1 becomes example.com/node/1).
+ *
+ * @todo Actually use this. The idea is to show the campaign url
+ * on the campaign page, recommending site.com/ref/$user/$campaign
+ * for linking to the front page, and site.com/url?a=$user&c=$campaign
+ * for individual pages.
+ *
+ * @ingroup themeable
+ */
+function theme_affiliate_ng_url($variables) {
+  global $base_url;
+
+  $default_code = $variables['default_code'];
+
+  $output = '<div class="messages affiliate_ng_url">';
+  $output .= $base_url . '/' . $variables['url'] . $default_code->code;
+  $output .= "</div>";
+
+  return $output;
+}
+
+/**
+ * Gets the number of clicks for each period, limited
+ * to $uid, if passed in.
+ */
+function _affiliate_ng_ui_get_click_counts($uid = NULL) {
+  $params = array();
+  $counts = array();
+
+  $count_query = "SELECT COUNT(click_id) FROM {affiliate_ng_click}
+                    WHERE (created BETWEEN :start AND :end)";
+  if ($uid) {
+    $count_query .= " AND affiliate_uid = :uid";
+    $params[':uid'] = $uid;
+  }
+  
+  $params[':start'] = mktime(0, 0, 0, date("m") , date("d"), date("Y"));
+  $params[':end'] = mktime(23, 59, 59, date("m") , date("d"), date("Y"));
+  $counts['today'] = db_query($count_query, $params)->fetchField();
+
+  // today's a monday
+  if (date('w') == 1) {
+    $params[':start'] = mktime(0, 0, 0, date("m") , date("d"), date("Y"));
+  } else {
+    $params[':start'] = strtotime('last monday');
+  }
+  $params[':end'] = strtotime('next monday') - 1;
+  $counts['week'] = db_query($count_query, $params)->fetchField();
+
+  $params[':start'] = mktime(0, 0, 0, date("m"), 1, date("Y"));
+  $params[':end'] = mktime(23, 59, 59, date("m") + 1, 0, date("Y"));
+  $counts['month'] = db_query($count_query, $params)->fetchField();
+
+  $params[':start'] = mktime(0, 0, 0, 1, 1, date("Y"));
+  $params[':end'] = mktime(23, 59, 59, 12, 31, date("Y"));
+  $counts['year'] = db_query($count_query, $params)->fetchField();
+
+  return $counts;
+}

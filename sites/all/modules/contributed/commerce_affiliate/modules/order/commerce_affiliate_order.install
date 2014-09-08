@@ -1,0 +1,45 @@
+<?php
+
+/**
+ * Implements hook_install().
+ *
+ * Creates an entityreference field on the commerce_order_product
+ * commission type, so that the commission can reference the exact
+ * product from the order for which the affiliate received the
+ * commission.
+ */
+function commerce_affiliate_order_install() {
+  $field = array(
+    'field_name' => 'commerce_affiliate_product',
+    'type' => 'entityreference',
+    'cardinality' => 1,
+    'settings' => array(
+      'target_type' => 'commerce_product',
+       // Allow every bundle to be referenced.
+      'handler_settings' => array('target_bundles' => array()),
+    ),
+  );
+  field_create_field($field);
+
+  $instance = array(
+    'field_name' => 'commerce_affiliate_product',
+    'entity_type' => 'commerce_affiliate_commission',
+    'bundle' => 'commerce_order_product',
+    'label' => t('Product'),
+    'widget' => array(
+      'type' => 'options_select',
+    ),
+  );
+  field_create_instance($instance);
+}
+
+/**
+ * Implements hook_uninstall().
+ *
+ * @see commerce_affiliate_order_install()
+ */
+function commerce_affiliate_order_uninstall() {
+  // Notify Field API that it can delete the fields on our bundles.
+  field_attach_delete_bundle('commerce_affiliate_commission', 'commerce_order');
+  field_attach_delete_bundle('commerce_affiliate_commission', 'commerce_order_product');
+}

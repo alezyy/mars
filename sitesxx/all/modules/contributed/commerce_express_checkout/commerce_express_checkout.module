@@ -1,0 +1,163 @@
+<?php
+
+function commerce_express_checkout_menu() {
+
+  $items['admin/commerce/products/express-checkout-links'] = array(
+      'title' => 'Generate Product Express Checkout Buttons',
+      'page callback' => 'drupal_get_form',
+      'page arguments' => array('commerce_express_checkout_generate_links'),
+      'access arguments' => array('access administration pages'),
+      'type' => MENU_NORMAL_ITEM,
+  );
+
+  $items['commerce-express-checkout/%/%'] = array(
+      'title' => 'Express Checkout',
+      'page callback' => 'commerce_express_checkout_create_order',
+      'page arguments' => array(1, 2),
+      'access arguments' => array('access checkout'),
+      'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+
+/**
+ * Implements hook_field_formatter_info().
+ */
+function commerce_express_checkout_field_formatter_info() {
+  return array(
+    'commerce_express_checkout_express_checkout_link' => array(
+      'label' => t('Express Checkout Link'),
+      'description' => t('Display the Express Checkout link'),
+      'field types' => array('commerce_product_reference'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ */
+function commerce_express_checkout_field_formatter_view($entity_type, $entity, $field, $instance, $langcode, $items, $display) {
+  $result = array();
+
+  // Collect the list of product IDs.
+  $product_ids = array();
+
+  foreach ($items as $delta => $item) {
+    $product_ids[$item['product_id']] = $item['product_id'];
+  }
+
+  // Exit now if we didn't find any product IDs.
+  if (empty($product_ids)) {
+    return;
+  }
+
+  // Load the referenced products.
+  $products = commerce_product_load_multiple($product_ids, array('status' => 1));
+
+  switch ($display['type']) {
+    case 'commerce_express_checkout_express_checkout_link':
+      foreach ($items as $delta => $item) {
+        if (!empty($item['product_id'])) {
+            $result[$delta] = array(
+              '#markup' => commerce_express_checkout_generate_checkout_button($item['product_id']),
+            );
+        }
+      }
+      break;
+  }
+
+  return $result;
+}
+
+function commerce_express_checkout_commerce_checkout_pane_info_alter(&$panes) {
+  if (arg(0) == 'checkout' && is_numeric(arg(1))) {
+    $order = commerce_order_load(arg(1));
+
+    if (array_key_exists('type', $order->data) && $order->data['type'] == 'commerce_express_checkout_order'){
+      $panes['checkout_review']['page'] = 'disabled';
+      $panes['commerce_payment']['page'] = 'checkout';
+    }
+  }
+}
+
+function commerce_express_checkout_create_order($product_id, $token) {
+
+  if (drupal_hmac_base64($product_id, drupal_get_private_key().drupal_get_hash_salt()) == $token) {
+    global $user;
+
+    $product = commerce_product_load($product_id);
+
+    $order = ($user->uid) ? commerce_order_new($user->uid, 'checkout_checkout') : commerce_cart_order_new();
+
+    commerce_order_save($order);
+
+    $line_item = commerce_product_line_item_new($product, 1, $order->order_id);
+
+    commerce_line_item_save($line_item);
+
+    $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+
+    $order_wrapper->commerce_line_items[] = $line_item;
+
+    $order->data['type'] = 'commerce_express_checkout_order';
+
+    commerce_order_save($order);
+
+    drupal_goto('checkout/' . $order->order_id);
+
+    return "";
+  }
+
+   return "";
+}
+
+function commerce_express_checkout_generate_links($form, &$form_state) {
+
+  $products = db_query("SELECT * FROM {commerce_product} WHERE status=1");
+
+  $products_array = array();
+
+  foreach ($products as $product) {
+    $products_array[$product->product_id] = $product->title;
+  }
+
+  $form['products'] = array(
+      '#type' => 'select',
+      '#title' => t('Select Product'),
+      '#options' => $products_array,
+      '#required' => TRUE,
+      '#default_value' => array_key_exists("commerce_express_checkout_selected", $_SESSION) ? $_SESSION['commerce_express_checkout_selected'] : NULL,
+      '#description' => t('Select a Product and click Generate Code, then copy the code from below'),
+  );
+
+  $form['submit'] = array(
+      '#type' => 'submit',
+      '#value' => t('Generate Code'),
+  );
+
+  $form['link'] = array(
+      '#markup' => '<div style="width: 80%; border: 2px solid #CCCCCC; padding: 20px;"><p>' . (array_key_exists("commerce_express_checkout_link", $_SESSION) ? $_SESSION["commerce_express_checkout_link"] : "") . '</p>',
+  );
+
+  if (array_key_exists("commerce_express_checkout_link", $_SESSION)){
+    unset($_SESSION["commerce_express_checkout_selected"]);
+    unset($_SESSION["commerce_express_checkout_link"]);
+  }
+
+  return $form;
+}
+
+function commerce_express_checkout_generate_links_submit($form, &$form_state){
+  $_SESSION["commerce_express_checkout_selected"] = $form_state['values']['products'];
+  $_SESSION["commerce_express_checkout_link"] = commerce_express_checkout_generate_checkout_button_code($form_state['values']['products']);
+}
+
+function commerce_express_checkout_generate_checkout_button($product_id){
+  return '<span style="display: inline-block; padding: 10px; border: 1px solid #CCCCCC; border-radius: 20px; background-color: #EEEEEE;"><a href="'.url("commerce-express-checkout/".$product_id.'/'.drupal_hmac_base64($product_id, drupal_get_private_key().drupal_get_hash_salt()), array('absolute' => TRUE)).'" style="text-decoration: none; font-weight: bold; color: #666666">'.t('Express Checkout').'</a></span>';
+}
+
+function commerce_express_checkout_generate_checkout_button_code($product_id){
+  return '<p>This is how it will look like, copy the code below and paste it anywhere on your site or on any external site you want to put a buy link on:<p>'.commerce_express_checkout_generate_checkout_button($product_id).'</p></p>'.'&ltspan style="display: inline-block; padding: 10px; border: 1px solid #CCCCCC; border-radius: 20px; background-color: #EEEEEE;"&gt&lta href="'.url("commerce-express-checkout/".$product_id.'/'.drupal_hmac_base64($product_id, drupal_get_private_key().drupal_get_hash_salt()), array('absolute' => TRUE)).'" style="text-decoration: none; font-weight: bold; color: #666666"&gt'.t('Express Checkout').'&lt/a&gt&lt/span&gt';
+}

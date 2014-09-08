@@ -1,0 +1,56 @@
+<?php
+
+/**
+ * Implements hook_install().
+ *
+ * Create and attach an image field to the campaign entity.
+ * Reuse an existing field / instance if available.
+ */
+function affiliate_ng_ui_install() {
+  $field_name = 'field_banners';
+  $field = field_info_field($field_name);
+  $instance = field_info_instance('affiliate_campaign', $field_name, 'affiliate_campaign');
+
+  if (empty($field)) {
+    $field = array(
+      'field_name' => $field_name,
+      'type' => 'image',
+      'cardinality' => FIELD_CARDINALITY_UNLIMITED,
+      'entity_types' => array('affiliate_campaign'),
+      'translatable' => FALSE,
+      'locked' => FALSE,
+    );
+    $field = field_create_field($field);
+  }
+  if (empty($instance)) {
+    $instance = array(
+      'field_name' => $field_name,
+      'entity_type' => 'affiliate_campaign',
+      'bundle' => 'affiliate_campaign',
+      'label' => 'Banners',
+      'weight' => 1,
+      'required' => FALSE,
+      'settings' => array(
+          'file_extensions' => 'png gif jpg jpeg',
+          'file_directory' => 'banners',
+          'max_filesize' => '',
+          'alt_field' => 1,
+          'title_field' => 1,
+          'max_resolution' => '',
+          'min_resolution' => '',
+      ),
+    );
+    field_create_instance($instance);
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function affiliate_ng_ui_uninstall() {
+  // Delete the imagefield created in hook_install().
+  $instance = field_info_instance('affiliate_campaign', 'field_banners', 'affiliate_campaign');
+  field_delete_instance($instance, TRUE);
+
+  field_delete_field('field_banners');
+}

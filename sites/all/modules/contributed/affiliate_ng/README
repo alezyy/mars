@@ -1,0 +1,21 @@
+This is a new generation Affiliate module for Drupal 7.
+
+Links
+-----
+1) example.com/ref/$affiliate_uid/$campaign_id
+Which in practice looks like this: example.com/ref/1/2
+$affiliate_uid is the user id of the affiliate user.
+The $campaign_id is optional, if left out, the click will be attributed 
+to the "Default" campaign.
+
+By default, the ref/ link will redirect to the homepage after registering
+the click. This can be changed by appending ?destination:
+example.com/ref/1/2?destination=node/2 will make the link redirect to node/2.
+
+2) example.com/node/2?a=$affiliate_uid&c=$campaign_id
+Which in practice looks like this: example.com/node/2?a=1&c=2
+As above, the campaign (&c=2) is optional.
+
+The two different forms of affiliate links are completely interchangeable.
+A best practice is to use ref/ links when just pointing to the site,
+while using ?a links for pointing to specific pages.

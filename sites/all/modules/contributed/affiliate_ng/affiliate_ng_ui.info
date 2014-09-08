@@ -1,0 +1,16 @@
+name = Affiliate UI
+description = Provides the basic interface to the Affiliate module.
+package = Affiliate-NG
+core = 7.x
+dependencies[] = affiliate_ng
+dependencies[] = entity
+dependencies[] = image
+dependencies[] = views
+
+configure = admin/config/people/affiliate
+; Information added by drupal.org packaging script on 2013-09-30
+version = "7.x-1.x-dev"
+core = "7.x"
+project = "affiliate_ng"
+datestamp = "1380553279"
+

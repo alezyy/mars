@@ -1,0 +1,349 @@
+<?php
+
+/**
+ * @file
+ * Provides the basic UI for manipulating commissions and commission types.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function commerce_affiliate_ui_menu() {
+  $items = array();
+  // Note: admin/affiliates/commissions is defined by a default View.
+  $items['admin/affiliates/commissions/%commerce_affiliate_commission'] = array(
+    'page callback' => 'commerce_affiliate_ui_commission_admin_view',
+    'page arguments' => array(3),
+    'access callback' => 'commerce_affiliate_commission_access',
+    'access arguments' => array('view', 3),
+    'weight' => 0,
+    'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+    'file' => 'includes/commerce_affiliate_ui.commissions.inc',
+  );
+  $items['admin/affiliates/commissions/%commerce_affiliate_commission/delete'] = array(
+    'title' => 'Delete',
+    'page callback' => 'commerce_affiliate_ui_commission_admin_delete',
+    'page arguments' => array(3),
+    'access callback' => 'commerce_affiliate_commission_access',
+    'access arguments' => array('delete', 3),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 20,
+    'context' => MENU_CONTEXT_INLINE,
+    'file' => 'includes/commerce_affiliate_ui.commissions.inc',
+  );
+
+  // @todo Perhaps move this to a tab under "Affiliate settings"?
+  $items['admin/affiliates/commissions/types'] = array(
+    'title' => 'Commission types',
+    'description' => 'Manage commissions types for your store.',
+    'page callback' => 'commerce_affiliate_ui_commission_types_overview',
+    'access arguments' => array('administer commission types'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 0,
+    'file' => 'includes/commerce_affiliate_ui.commission_types.inc',
+  );
+  foreach (commerce_affiliate_commission_types() as $type => $commission_type) {
+    // Convert underscores to hyphens for the menu item argument.
+    $type_arg = strtr($type, '_', '-');
+
+    $items['admin/affiliates/commissions/types/' . $type_arg] = array(
+      'title' => $commission_type['name'],
+      'page callback' => 'commerce_affiliate_ui_commission_type',
+      'page arguments' => array($type),
+      'access arguments' => array('administer commission types'),
+      'file' => 'includes/commerce_affiliate_ui.commission_types.inc',
+    );
+    $items['admin/affiliates/commissions/types/' . $type_arg . '/disable'] = array(
+      'title' => 'Disable',
+      'page callback' => 'commerce_affiliate_ui_disable_commission_type',
+      'page arguments' => array($type),
+      'access callback' => 'commerce_affiliate_ui_commission_type_disable_access',
+      'access arguments' => array($type),
+      'type' => MENU_LOCAL_TASK,
+      'context' => MENU_CONTEXT_NONE | MENU_CONTEXT_INLINE,
+      'file' => 'includes/commerce_affiliate_ui.commission_types.inc',
+    );
+    $items['admin/affiliates/commissions/types/' . $type_arg . '/enable'] = array(
+      'title' => 'Enable',
+      'page callback' => 'commerce_affiliate_ui_enable_commission_type',
+      'page arguments' => array($type),
+      'access callback' => 'commerce_affiliate_ui_commission_type_enable_access',
+      'access arguments' => array($type),
+      'type' => MENU_LOCAL_TASK,
+      'context' => MENU_CONTEXT_NONE | MENU_CONTEXT_INLINE,
+      'file' => 'includes/commerce_affiliate_ui.commission_types.inc',
+    );
+
+    if ($commission_type['enabled'] && !empty($commission_type['admin_ui'])) {
+      $admin_ui = $commission_type['admin_ui'];
+      $path = $admin_ui['path'];
+      // Remove the trailing slash if present.
+      if (substr($path, -1, 1) == '/') {
+        $path = substr($path, 0, -1);
+      }
+      // Calculate the position of the loader argument (%node in node/%node/commissions).
+      $path_parts = explode('/', $path);
+      $loader_argument_position = 1;
+      foreach ($path_parts as $count => $path_part) {
+        if (strpos($path_part, '%') !== FALSE && strlen($path_part) > 1) {
+          $loader_argument_position = $count;
+        }
+      }
+
+      if (!isset($items[$path])) {
+        // Shows the listing view and add form.
+        $items[$path] = array(
+          'title' => $admin_ui['title'],
+          'page callback' => 'commerce_affiliate_ui_commission_list',
+          'page arguments' => array($loader_argument_position, $type),
+          'access callback' => 'commerce_affiliate_ui_commission_list_access',
+          'access arguments' => array($type),
+          'type' => MENU_LOCAL_TASK,
+          'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+          'weight' => 20,
+          'file' => 'includes/commerce_affiliate_ui.commissions.inc',
+        );
+
+        // Can't use %commerce_affiliate_commission because the $path
+        // probably already contains another loader (%user, %node),
+        // and it's not possible to have two.
+        $commission_argument_position = count($path_parts);
+        $items[$path . '/%'] = array(
+          'page callback' => 'commerce_affiliate_ui_commission_view',
+          'page arguments' => array($commission_argument_position),
+          'access callback' => 'commerce_affiliate_ui_commission_access',
+          'access arguments' => array('view', $commission_argument_position),
+          'weight' => 0,
+          'context' => MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE,
+          'file' => 'includes/commerce_affiliate_ui.commissions.inc',
+        );
+        $items[$path . '/%/delete'] = array(
+          'title' => 'Delete',
+          'page callback' => 'commerce_affiliate_ui_commission_delete',          
+          'page arguments' => array($commission_argument_position),
+          'access callback' => 'commerce_affiliate_ui_commission_access',
+          'access arguments' => array('delete', $commission_argument_position),
+          'type' => MENU_LOCAL_TASK,
+          'weight' => 20,
+          'context' => MENU_CONTEXT_NONE | MENU_CONTEXT_INLINE,
+          'file' => 'includes/commerce_affiliate_ui.commissions.inc',
+        );
+      }
+      else {
+        // Two commission types might share the same UI page. The access
+        // function checks access for each type, and grants access if at least
+        // one is accessable.
+        $items[$path]['access arguments'][] = $type;
+      }
+    }
+  }
+  return $items;
+}
+
+/**
+ * Access callback: determines if the user can enable the commission type.
+ */
+function commerce_affiliate_ui_commission_type_enable_access($type) {
+  $commission_type = commerce_affiliate_commission_type_load($type);
+  return user_access('administer commission types') && !$commission_type['enabled'];
+}
+
+/**
+ * Access callback: determines if the user can disable the commissiont ype.
+ */
+function commerce_affiliate_ui_commission_type_disable_access($type) {
+  $commission_type = commerce_affiliate_commission_type_load($type);
+  return user_access('administer commission types') && $commission_type['enabled'];
+}
+
+/**
+ * Access callback: grants access to the commission list page if at least
+ * one of the commission types using it is accessable.
+ */
+function commerce_affiliate_ui_commission_list_access() {
+  $types = func_get_args();
+  foreach ($types as $type) {
+    $commission = entity_create('commerce_affiliate_commission', array('type' => $type));
+    if (commerce_affiliate_commission_access('create', $commission)) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Access callback: wraps commerce_affiliate_commission_access() for
+ * admin_ui callbacks.
+ */
+function commerce_affiliate_ui_commission_access($op, $commission_id) {
+  $commission = entity_load_single('commerce_affiliate_commission', $commission_id);
+
+  // The commission doesn't exist. Pass along to the page callback, which will return 404.
+  if (!$commission) {
+    return TRUE;
+  }
+  else {
+    return commerce_affiliate_commission_access($op, $commission);
+  }
+}
+
+/**
+ * Implements hook_menu_alter().
+ */
+function commerce_affiliate_ui_menu_alter(&$items) {
+  // Transform the field UI tabs into contextual links.
+  foreach (commerce_affiliate_commission_types() as $type => $commission_type) {
+    // Convert underscores to hyphens for the menu item argument.
+    $type_arg = strtr($type, '_', '-');
+
+    $items['admin/affiliates/commissions/types/' . $type_arg . '/fields']['context'] = MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE;
+    $items['admin/affiliates/commissions/types/' . $type_arg . '/display']['context'] = MENU_CONTEXT_PAGE | MENU_CONTEXT_INLINE;
+  }
+}
+
+/**
+ * Implements hook_theme().
+ */
+function commerce_affiliate_ui_theme() {
+  return array(
+    'commission_type_admin_overview' => array(
+      'variables' => array('type' => NULL),
+      'file' => 'includes/commerce_affiliate_ui.commission_types.inc',
+    ),
+  );
+}
+
+/**
+ * Implements hook_entity_info_alter().
+ */
+function commerce_affiliate_ui_entity_info_alter(&$entity_info) {
+  // Expose the admin UI for commission fields.
+  foreach ($entity_info['commerce_affiliate_commission']['bundles'] as $type => &$bundle) {
+    $bundle['admin'] = array(
+      'path' => 'admin/affiliates/commissions/types/' . strtr($type, '_', '-'),
+      'access arguments' => array('administer commission types'),
+    );
+  }
+}
+
+/**
+ * Implements hook_views_api().
+ */
+function commerce_affiliate_ui_views_api() {
+  return array(
+    'api' => 3,
+    'path' => drupal_get_path('module', 'commerce_affiliate_ui') . '/includes/views',
+  );
+}
+
+/**
+ * Implements hook_commerce_affiliate_commission_type_info().
+ *
+ * @todo Support affiliate_click.
+ */
+function commerce_affiliate_ui_commerce_affiliate_commission_type_info() {
+  $commission_types = array();
+
+  $commission_types['node'] = array(
+    'type' => 'node',
+    'entity_type' => 'node',
+    'name' => t('Node commission'),
+    'admin_ui' => array(
+      'path' => 'node/%node/commissions',
+    ),
+  );
+  $commission_types['user'] = array(
+    'type' => 'user',
+    'entity_type' => 'user',
+    'name' => t('User commission'),
+    'admin_ui' => array(
+      'path' => 'user/%user/commissions',
+    ),
+  );
+  $commission_types['affiliate_click'] = array(
+    'type' => 'affiliate_click',
+    'entity_type' => 'affiliate_click',
+    'name' => t('Affiliate click commission'),
+    /*'admin_ui' => array(
+      'path' => 'user/%user/commissions',
+    ),*/
+  );
+  if (module_exists('commerce_product')) {
+    $commission_types['commerce_product'] = array(
+      'type' => 'commerce_product',
+      'entity_type' => 'commerce_product',
+      'name' => t('Product commission'),
+      'admin_ui' => array(
+        'path' => 'admin/commerce/products/%commerce_product/commissions',
+      ),
+    );
+  }
+
+  return $commission_types;
+}
+
+/**
+ * Implements hook_commerce_affiliate_commission_type_info_alter().
+ */
+function commerce_affiliate_ui_commerce_affiliate_commission_type_info_alter(&$commission_types) {
+  $enabled_types = variable_get('commerce_affiliate_ui_enabled_types', _commerce_affiliate_ui_enabled_types_default());
+
+  foreach ($commission_types as $type => $commission_type) {
+    // Set the 'enabled' key based on the UI settings, allowing
+    // commission types to be disabled by the user.
+    $commission_types[$type]['enabled'] = !empty($enabled_types[$type]);
+
+    // Provide defaults for 'admin_ui'.
+    if (!empty($commission_type['admin_ui'])) {
+      $commission_types[$type]['admin_ui'] += array(
+        'title' => t('Commissions'),
+        'view_name' => 'commerce_affiliate_commissions',
+        'view_display' => 'master',
+      );
+    }
+  }
+}
+
+/**
+ * Provides the default value for the 'commerce_affiliate_ui_enabled_types'
+ * setting.
+ */
+function _commerce_affiliate_ui_enabled_types_default() {
+  $enabled_types = array();
+  $commission_types = commerce_affiliate_commission_types();
+
+  foreach ($commission_types as $type => $commission_type) {
+    $enabled_types[$type] = FALSE;
+
+    // By default, enable the commission types provided by
+    // other modules.
+    if ($commission_type['module'] != 'commerce_affiliate_ui') {
+      $enabled_types[$type] = $type;
+    }
+  }
+
+  return $enabled_types;
+}
+
+/**
+ * Sets the breadcrumb for administrative commission pages.
+ *
+ * @param $commission_types
+ *   TRUE or FALSE indicating whether or not the breadcrumb should include the
+ *     commission types administrative page.
+ */
+function commerce_affiliate_ui_set_breadcrumb($commission_types = FALSE) {
+  $breadcrumb = array(
+    l(t('Home'), '<front>'),
+    l(t('Administration'), 'admin'),
+    l(t('Affiliates'), 'admin/affiliates'),
+    l(t('Commissions'), 'admin/affiliates/commissions'),
+  );
+
+  if ($commission_types) {
+    $breadcrumb[] = l(t('Commission types'), 'admin/affiliates/commissions/types');
+  }
+
+  drupal_set_breadcrumb($breadcrumb);
+}

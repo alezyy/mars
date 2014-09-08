@@ -1,0 +1,13 @@
+name = Advanced Queues example
+description = Example module for Advanced Queues module.
+package = Other
+core = 7.x
+
+dependencies[] = advancedqueue
+
+; Information added by Drupal.org packaging script on 2014-06-25
+version = "7.x-1.0-beta2"
+core = "7.x"
+project = "advancedqueue"
+datestamp = "1403714628"
+

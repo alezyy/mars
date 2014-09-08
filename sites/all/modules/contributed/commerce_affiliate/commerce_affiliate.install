@@ -1,0 +1,128 @@
+<?php
+
+/**
+ * Implements hook_schema().
+ */
+function commerce_affiliate_schema() {
+  $schema = array();
+
+  $schema['commerce_affiliate_commission'] = array(
+    'description' => 'The base table for commissions.',
+    'fields' => array(
+      'commission_id' => array(
+        'description' => 'The primary identifier for a commission.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'type' => array(
+        'description' => 'The commission type (bundle).',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'affiliate_uid' => array(
+        'description' => 'The uid of the affiliate who received the commission.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'campaign_id' => array(
+        'description' => 'The id of the campaign used.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'parent_entity_id' => array(
+        'description' => 'The id of the parent entity for which the affiliate received a commission.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'parent_entity_type' => array(
+        'description' => 'The type of the parent entity for which the affiliate received a commission.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'created' => array(
+        'description' => 'The Unix timestamp when the commission was created.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'changed' => array(
+        'description' => 'The Unix timestamp when the commission was most recently saved.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'indexes' => array(
+      'commission_type' => array('type'),
+      'parent_entity' => array('parent_entity_id', 'parent_entity_type'),
+    ),
+    'primary key' => array('commission_id'),
+    'foreign keys' => array(
+      'affiliate_user' => array(
+        'table' => 'users',
+        'columns' => array('affiliate_uid' => 'uid'),
+      ),
+      'affiliate_campaign' => array(
+        'table' => 'affiliate_ng_campaign',
+        'columns' => array('campaign_id' => 'campaign_id'),
+      ),
+    ),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implements hook_modules_installed().
+ *
+ * If a module is declaring commission types, create the needed fields for them.
+ * This hook fires for all installed modules, including this one, so there's
+ * no need for a separate hook_install().
+ */
+function commerce_affiliate_modules_installed($modules) {
+  $commission_types = array();
+  foreach ($modules as $module) {
+    module_load_include('module', $module);
+
+    if (module_hook($module, 'commerce_affiliate_commission_type_info')) {
+      // Gather all commission types provided by newly enabled modules.
+      $commission_types += module_invoke($module, 'commerce_affiliate_commission_type_info');
+    }
+  }
+
+  // If there are new commission types, configure them (create the fields).
+  if ($commission_types) {
+    module_load_include('module', 'commerce_affiliate');
+    foreach ($commission_types as $type => $commission_type) {
+      commerce_affiliate_configure_commission_type($commission_type);
+    }
+  }
+}
+
+/**
+ * Implements hook_modules_uninstalled().
+ *
+ * @see commerce_affiliate_modules_installed()
+ */
+function commerce_affiliate_modules_uninstalled($modules) {
+  foreach ($modules as $module) {
+    module_load_include('module', $module);
+
+    if (module_hook($module, 'commerce_affiliate_commission_type_info')) {
+      $commission_types = module_invoke($module, 'commerce_affiliate_commission_type_info');
+
+      foreach ($commission_types as $type => $commission_type) {
+        // Notify Field API that it can delete the fields on our bundles.
+        field_attach_delete_bundle('commerce_affiliate_commission', $type);
+      }
+    }
+  }
+}

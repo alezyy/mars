@@ -1,0 +1,158 @@
+<?php
+
+/**
+ * Implements hook_schema().
+ */
+function affiliate_ng_schema() {
+  $schema = array();
+
+  $schema['affiliate_ng_campaign'] = array(
+    'description' => "Affiliate campaigns, used to differentiate trafic sources. Entity base table.",
+    'fields' => array(
+      'campaign_id' => array(
+        'description' => 'The primary identifier for a campaign.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'name' => array(
+        'description' => 'Displayed in the statistics pages to identify the campaign.',
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+      ),
+      'affiliate_uid' => array(
+        'description' => t('The {users}.uid of the campaign owner. 0 if the campaign is global (available to all affiliates).'),
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'created' => array(
+        'description' => 'The Unix timestamp when the campaign was created.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'is_default' => array(
+        'description' => 'Whether this is the default campaign (used when no campaign is specified in the URL).',
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'is_active' => array(
+        'description' => 'Whether the campaign is still active (can accept clicks).',
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 1,
+      ),
+    ),
+    'primary key' => array('campaign_id'),
+    'indexes' => array(
+      'affiliate_uid' => array('affiliate_uid'),
+     ),
+  );
+
+  $schema['affiliate_ng_click'] = array(
+    'description' => 'Affiliate clicks. Entity base table.',
+    'fields' => array(
+      'click_id' => array(
+        'description' => 'The primary identifier for a click.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'campaign_id' => array(
+        'description' => 'The used affiliate campaign.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'affiliate_uid' => array(
+        'description' => 'The {users}.uid of the referenced affiliate.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'created' => array(
+        'description' => 'The Unix timestamp when the click was created.',
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+      'hostname' => array(
+        'description' => "The IP address that made the click (clicked the affiliate's link).",
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'default' => '',
+      ),
+      'referrer' => array(
+        'type' => 'text',
+        'not null' => FALSE,
+      ),
+      'destination' => array(
+        'type' => 'text',
+        'not null' => FALSE,
+      ),
+    ),
+    'primary key' => array('click_id'),
+    'foreign keys' => array(
+      'affiliate_user' => array(
+        'table' => 'users',
+        'columns' => array('affiliate_uid' => 'uid'),
+      ),
+      'affiliate_campaign' => array(
+        'table' => 'affiliate_ng_campaign',
+        'columns' => array('campaign_id' => 'campaign_id'),
+      ),
+    ),
+  );
+  
+  return $schema;
+}
+
+/**
+ * Implements hook_install().
+ */
+function affiliate_ng_install() {
+  // Create the default campaign.
+  db_insert('affiliate_ng_campaign')
+    ->fields(array(
+      'name' => t('Default'),
+      'is_default' => TRUE,
+      'created' => REQUEST_TIME,
+    ))
+    ->execute();
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function affiliate_ng_uninstall() {
+  // Delete any field instance attached to the provided entity types.
+  _affiliate_ng_delete_instances('affiliate_click');
+  _affiliate_ng_delete_instances('affiliate_campaign');
+}
+
+/**
+ * Deletes any field instance attached to entities of the specified type.
+ *
+ * @param $entity_type
+ *   The type of entity whose fields should be deleted.
+ * @param $bundle
+ *   Optionally limit instance deletion to a specific bundle of the specified
+ *   entity type.
+ */
+function _affiliate_ng_delete_instances($entity_type, $bundle = NULL) {
+  if (empty($bundle)) {
+    $bundle = $entity_type;
+  }
+
+  // Read and delete the matching field instances.
+  foreach (field_info_instances($entity_type, $bundle) as $instance) {
+    field_delete_instance($instance, TRUE);
+  }
+}
